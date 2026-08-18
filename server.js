@@ -336,6 +336,7 @@ app.post('/api/follow/:userId', rateLimit, async (req, res) => {
       .insert({ follower_id: followerId, followee_id: followeeId })
 
     if (result.error) {
+      console.error('Follow error:', result.error)
       return res.status(400).json({ error: 'Could not follow this user' })
     }
 
@@ -376,6 +377,7 @@ app.delete('/api/follow/:userId', rateLimit, async (req, res) => {
       .eq('followee_id', followeeId)
 
     if (result.error) {
+      console.error('Unfollow error:', result.error)
       return res.status(400).json({ error: 'Could not unfollow this user' })
     }
 
