@@ -1,4 +1,6 @@
-
+// ===================================================================
+// MOOD & MORE BACKEND SERVER
+// ===================================================================
 
 import 'dotenv/config'
 import express from 'express'
@@ -10,6 +12,9 @@ import * as quota from './lib/quota.js'
 import { isMood, randomQuery } from './lib/moods.js'
 import { searchTracks } from './lib/youtube.js'
 
+// ===================================================================
+// SETUP & VALIDATION
+// ===================================================================
 
 if (!process.env.YOUTUBE_API_KEY) {
   console.error('Missing YOUTUBE_API_KEY in .env')
@@ -19,17 +24,23 @@ if (!process.env.YOUTUBE_API_KEY) {
 const app = express()
 const PORT = process.env.PORT || 3000
 
+// ===================================================================
+// SECURITY & MIDDLEWARE CONFIGURATION
+// ===================================================================
 
-// which websites are allowed to talk to us
+// allowed websites that can talk to us
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGIN || 'http://localhost:5173')
   .split(',')
   .map(origin => origin.trim())
   .filter(Boolean)
 
-// trust the IP from the proxy
 app.set('trust proxy', 1)
 
-// admin client for deleting accounts
+// ===================================================================
+// DATABASE CLIENTS (Supabase)
+// ===================================================================
+
+// admin client for account deletion
 let adminClient = null
 
 if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -38,7 +49,7 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.warn('No SUPABASE_SERVICE_ROLE_KEY, deleting accounts is switched off')
 }
 
-// client for checking passwords
+// client for password verification
 let passwordClient = null
 
 if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
@@ -49,14 +60,17 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
   console.warn('No SUPABASE_ANON_KEY, deleting accounts is switched off')
 }
 
-// check if a password is correct by trying to log in
+// ===================================================================
+// HELPER FUNCTIONS
+// ===================================================================
+
+// verify a password by attempting login
 async function passwordIsRight(email, password) {
   const result = await passwordClient.auth.signInWithPassword({
     email: email,
     password: password
   })
 
-  // if login worked, log out
   if (!result.error) {
     await passwordClient.auth.signOut()
   }
@@ -64,6 +78,46 @@ async function passwordIsRight(email, password) {
   return !result.error
 }
 
+// get tracks from cache or YouTube
+async function getTracks(cacheKey, query, pageToken, ttl) {
+  const cachedData = cache.get(cacheKey)
+
+  if (cachedData && cachedData.isFresh) {
+    return cachedData.data
+  }
+
+  if (quota.canSpend(quota.PAGE_COST)) {
+    try {
+      const result = await searchTracks(query, pageToken, quota.spend)
+
+      const answer = {
+        tracks: result.tracks,
+        nextPageToken: result.nextPageToken
+      }
+
+      if (!result.partial) {
+        cache.set(cacheKey, answer, ttl)
+      }
+
+      return answer
+    } catch (error) {
+      console.error('YouTube request failed:', error.message)
+    }
+  }
+
+  if (cachedData) {
+    console.warn('Using old cached data for:', cacheKey)
+    return cachedData.data
+  }
+
+  throw new Error('Could not get any tracks')
+}
+
+// ===================================================================
+// MIDDLEWARE SETUP
+// ===================================================================
+
+// CORS configuration
 app.use(cors({
   origin(origin, callback) {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) {
@@ -74,11 +128,13 @@ app.use(cors({
   }
 }))
 
-
-// only accept JSON up to 4kb
+// limit request body size
 app.use(express.json({ limit: '4kb' }))
 
-// stop people from spamming us
+// ===================================================================
+// RATE LIMITING
+// ===================================================================
+
 const MAX_PER_MINUTE = 30
 const SWEEP_EVERY = 5 * 60 * 1000
 const visitors = new Map()
@@ -101,7 +157,7 @@ function rateLimit(req, res, next) {
   next()
 }
 
-// clean up old visitor records so they don't take memory
+// clean up old visitor data
 const sweepTimer = setInterval(() => {
   const now = Date.now()
 
@@ -114,47 +170,11 @@ const sweepTimer = setInterval(() => {
 
 sweepTimer.unref()
 
-// get tracks, use cache first, then YouTube
-async function getTracks(cacheKey, query, pageToken, ttl) {
-  const cachedData = cache.get(cacheKey)
+// ===================================================================
+// API ROUTES
+// ===================================================================
 
-  // if we have fresh data in cache, use it
-  if (cachedData && cachedData.isFresh) {
-    return cachedData.data
-  }
-
-  // if we have quota, search YouTube
-  if (quota.canSpend(quota.PAGE_COST)) {
-    try {
-      const result = await searchTracks(query, pageToken, quota.spend)
-
-      const answer = {
-        tracks: result.tracks,
-        nextPageToken: result.nextPageToken
-      }
-
-      // save to cache if we got all durations
-      if (!result.partial) {
-        cache.set(cacheKey, answer, ttl)
-      }
-
-      return answer
-    } catch (error) {
-      console.error('YouTube request failed:', error.message)
-    }
-  }
-
-  // no quota left, use old data if we have it
-  if (cachedData) {
-    console.warn('Using old cached data for:', cacheKey)
-    return cachedData.data
-  }
-
-  throw new Error('Could not get any tracks')
-}
-
-
-// health check endpoint
+// health check
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, uptime: Math.round(process.uptime()) })
 })
@@ -175,8 +195,6 @@ app.get('/api/playlist/:mood', rateLimit, async (req, res) => {
 
   try {
     const result = await getTracks(key, searchQuery, pageToken, cache.PLAYLIST_TTL)
-
-    // add the query term to the response
     const responseData = Object.assign({}, result, { query: searchQuery })
     res.json(responseData)
   } catch (error) {
@@ -202,8 +220,6 @@ app.get('/api/search', rateLimit, async (req, res) => {
 
   try {
     const result = await getTracks(key, searchInput, pageToken, cache.SEARCH_TTL)
-
-    // add the query term to the response
     const responseData = Object.assign({}, result, { query: searchInput })
     res.json(responseData)
   } catch (error) {
@@ -211,13 +227,12 @@ app.get('/api/search', rateLimit, async (req, res) => {
   }
 })
 
-// delete a user account
+// delete user account
 app.delete('/api/account', rateLimit, async (req, res) => {
   if (!adminClient || !passwordClient) {
     return res.status(503).json({ error: 'Deleting accounts is not set up on this server.' })
   }
 
-  // get the token from the header
   const header = req.headers.authorization || ''
   const token = header.replace('Bearer ', '')
 
@@ -225,7 +240,6 @@ app.delete('/api/account', rateLimit, async (req, res) => {
     return res.status(401).json({ error: 'You are not logged in.' })
   }
 
-  // check the token is real
   const userResult = await adminClient.auth.getUser(token)
 
   if (userResult.error || !userResult.data.user) {
@@ -239,14 +253,12 @@ app.delete('/api/account', rateLimit, async (req, res) => {
     return res.status(401).json({ error: 'Type your password to confirm.' })
   }
 
-  // make sure the password is right
   const confirmed = await passwordIsRight(user.email, password)
 
   if (!confirmed) {
     return res.status(401).json({ error: 'That password is not right.' })
   }
 
-  // delete the user
   const userId = user.id
   const deleteResult = await adminClient.auth.admin.deleteUser(userId)
 
@@ -258,7 +270,7 @@ app.delete('/api/account', rateLimit, async (req, res) => {
   res.json({ deleted: true })
 })
 
-// show server stats
+// server stats
 app.get('/api/stats', rateLimit, (req, res) => {
   res.json({
     quota: quota.stats(),
@@ -266,7 +278,11 @@ app.get('/api/stats', rateLimit, (req, res) => {
   })
 })
 
-// 404 for unknown routes
+// ===================================================================
+// ERROR HANDLING
+// ===================================================================
+
+// 404 - route not found
 app.use((req, res) => {
   res.status(404).json({ error: 'Unknown address' })
 })
@@ -276,6 +292,10 @@ app.use((error, req, res, next) => {
   console.error('Unhandled error:', error.message)
   res.status(500).json({ error: 'Something went wrong on the server.' })
 })
+
+// ===================================================================
+// START SERVER
+// ===================================================================
 
 app.listen(PORT, () => {
   const quotaStats = quota.stats()
