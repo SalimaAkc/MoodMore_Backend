@@ -60,6 +60,15 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
   console.warn('No SUPABASE_ANON_KEY, deleting accounts is switched off')
 }
 
+// client for backend queries (bypasses RLS with service role)
+let supabase = null
+
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+} else {
+  console.warn('No SUPABASE_SERVICE_ROLE_KEY, user search and follow features are switched off')
+}
+
 // ===================================================================
 // HELPER FUNCTIONS
 // ===================================================================
