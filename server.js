@@ -244,18 +244,28 @@ app.get('/api/users', rateLimit, async (req, res) => {
   }
 
   try {
-    // search in profiles table by full_name or email
-    const result = await supabase
+    // search in profiles table - try both full_name and email
+    const searchLower = searchQuery.toLowerCase()
+
+    // get all profiles and filter on backend (temporary solution)
+    const allProfiles = await supabase
       .from('profiles')
       .select('id, email, full_name, avatar_url, created_at')
-      .or(`full_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
-      .limit(20)
+      .limit(100)
 
-    if (result.error) {
+    if (allProfiles.error) {
+      console.error('Profiles fetch error:', allProfiles.error)
       return res.status(400).json({ error: 'Could not search users' })
     }
 
-    res.json({ users: result.data || [] })
+    // filter locally by name or email (case-insensitive)
+    const filtered = (allProfiles.data || []).filter(profile => {
+      const nameMatch = profile.full_name && profile.full_name.toLowerCase().includes(searchLower)
+      const emailMatch = profile.email && profile.email.toLowerCase().includes(searchLower)
+      return nameMatch || emailMatch
+    }).slice(0, 20)
+
+    res.json({ users: filtered })
   } catch (error) {
     res.status(503).json({ error: 'Search is not working right now. Try again later.' })
   }
