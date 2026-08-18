@@ -235,17 +235,11 @@ app.get('/api/search', rateLimit, async (req, res) => {
 app.get('/api/users', rateLimit, async (req, res) => {
   const searchQuery = req.query.q ? req.query.q.trim() : ''
 
-  if (!searchQuery || searchQuery.length < 1) {
-    return res.json({ users: [] })
-  }
-
   if (searchQuery.length > 100) {
     return res.status(400).json({ error: 'Search is too long' })
   }
 
   try {
-    const searchLower = searchQuery.toLowerCase()
-
     // get all profiles and filter on backend
     const allProfiles = await supabase
       .from('profiles')
@@ -258,9 +252,17 @@ app.get('/api/users', rateLimit, async (req, res) => {
     }
 
     const profiles = allProfiles.data || []
-    console.log(`Found ${profiles.length} total profiles, searching for: "${searchQuery}"`)
+    console.log(`Found ${profiles.length} total profiles`)
+    console.log('Profiles:', profiles.map(p => ({ id: p.id, name: p.full_name, email: p.email })))
+
+    // if no search query, return all profiles (for debugging)
+    if (!searchQuery) {
+      console.log(`No search query, returning all ${profiles.length} profiles`)
+      return res.json({ users: profiles.slice(0, 20) })
+    }
 
     // filter locally by name or email (case-insensitive)
+    const searchLower = searchQuery.toLowerCase()
     const filtered = profiles.filter(profile => {
       if (!profile) return false
 
@@ -273,7 +275,7 @@ app.get('/api/users', rateLimit, async (req, res) => {
       return nameMatch || emailMatch
     }).slice(0, 20)
 
-    console.log(`Filtered to ${filtered.length} results`)
+    console.log(`Searched for "${searchQuery}", filtered to ${filtered.length} results`)
     res.json({ users: filtered })
   } catch (error) {
     console.error('Search error:', error)
