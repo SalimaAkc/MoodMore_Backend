@@ -441,11 +441,27 @@ app.use((error, req, res, next) => {
 })
 
 // ===================================================================
+// ERROR HANDLERS FOR UNCAUGHT ERRORS
+// ===================================================================
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error)
+})
+
+// ===================================================================
 // START SERVER
 // ===================================================================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   const quotaStats = quota.stats()
   console.log(`Mood&More backend running on http://localhost:${PORT}`)
   console.log(`YouTube quota today: ${quotaStats.used}/${quotaStats.budget} used (${quotaStats.pagesLeft} pages left)`)
+})
+
+server.on('error', (error) => {
+  console.error('Server error:', error)
 })
