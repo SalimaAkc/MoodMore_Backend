@@ -227,6 +227,122 @@ app.get('/api/search', rateLimit, async (req, res) => {
   }
 })
 
+// ===================================================================
+// SOCIAL FEATURES - Search Users & Follow
+// ===================================================================
+
+// search for users by name or email
+app.get('/api/users', rateLimit, async (req, res) => {
+  const searchQuery = req.query.q ? req.query.q.trim() : ''
+
+  if (!searchQuery || searchQuery.length < 2) {
+    return res.json({ users: [] })
+  }
+
+  if (searchQuery.length > 100) {
+    return res.status(400).json({ error: 'Search is too long' })
+  }
+
+  try {
+    // search in profiles table by full_name or email
+    const result = await supabase
+      .from('profiles')
+      .select('id, email, full_name, avatar_url, created_at')
+      .or(`full_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+      .limit(20)
+
+    if (result.error) {
+      return res.status(400).json({ error: 'Could not search users' })
+    }
+
+    res.json({ users: result.data || [] })
+  } catch (error) {
+    res.status(503).json({ error: 'Search is not working right now. Try again later.' })
+  }
+})
+
+// follow a user
+app.post('/api/follow/:userId', rateLimit, async (req, res) => {
+  const followeeId = req.params.userId
+  const header = req.headers.authorization || ''
+  const token = header.replace('Bearer ', '')
+
+  if (!token) {
+    return res.status(401).json({ error: 'You are not logged in.' })
+  }
+
+  if (!followeeId) {
+    return res.status(400).json({ error: 'User ID is required' })
+  }
+
+  try {
+    const userResult = await supabase.auth.getUser(token)
+
+    if (userResult.error || !userResult.data.user) {
+      return res.status(401).json({ error: 'You are not logged in.' })
+    }
+
+    const followerId = userResult.data.user.id
+
+    if (followerId === followeeId) {
+      return res.status(400).json({ error: 'You cannot follow yourself' })
+    }
+
+    // add follow record
+    const result = await supabase
+      .from('follows')
+      .insert({ follower_id: followerId, followee_id: followeeId })
+
+    if (result.error) {
+      return res.status(400).json({ error: 'Could not follow this user' })
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    res.status(503).json({ error: 'Could not follow user right now. Try again later.' })
+  }
+})
+
+// unfollow a user
+app.delete('/api/follow/:userId', rateLimit, async (req, res) => {
+  const followeeId = req.params.userId
+  const header = req.headers.authorization || ''
+  const token = header.replace('Bearer ', '')
+
+  if (!token) {
+    return res.status(401).json({ error: 'You are not logged in.' })
+  }
+
+  if (!followeeId) {
+    return res.status(400).json({ error: 'User ID is required' })
+  }
+
+  try {
+    const userResult = await supabase.auth.getUser(token)
+
+    if (userResult.error || !userResult.data.user) {
+      return res.status(401).json({ error: 'You are not logged in.' })
+    }
+
+    const followerId = userResult.data.user.id
+
+    // remove follow record
+    const result = await supabase
+      .from('follows')
+      .delete()
+      .eq('follower_id', followerId)
+      .eq('followee_id', followeeId)
+
+    if (result.error) {
+      return res.status(400).json({ error: 'Could not unfollow this user' })
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    res.status(503).json({ error: 'Could not unfollow user right now. Try again later.' })
+  }
+})
+
 // delete user account
 app.delete('/api/account', rateLimit, async (req, res) => {
   if (!adminClient || !passwordClient) {
