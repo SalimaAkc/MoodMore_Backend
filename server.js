@@ -235,7 +235,7 @@ app.get('/api/search', rateLimit, async (req, res) => {
 app.get('/api/users', rateLimit, async (req, res) => {
   const searchQuery = req.query.q ? req.query.q.trim() : ''
 
-  if (!searchQuery || searchQuery.length < 2) {
+  if (!searchQuery || searchQuery.length < 1) {
     return res.json({ users: [] })
   }
 
@@ -244,29 +244,39 @@ app.get('/api/users', rateLimit, async (req, res) => {
   }
 
   try {
-    // search in profiles table - try both full_name and email
     const searchLower = searchQuery.toLowerCase()
 
-    // get all profiles and filter on backend (temporary solution)
+    // get all profiles and filter on backend
     const allProfiles = await supabase
       .from('profiles')
       .select('id, email, full_name, avatar_url, created_at')
-      .limit(100)
+      .order('created_at', { ascending: false })
 
     if (allProfiles.error) {
       console.error('Profiles fetch error:', allProfiles.error)
       return res.status(400).json({ error: 'Could not search users' })
     }
 
+    const profiles = allProfiles.data || []
+    console.log(`Found ${profiles.length} total profiles, searching for: "${searchQuery}"`)
+
     // filter locally by name or email (case-insensitive)
-    const filtered = (allProfiles.data || []).filter(profile => {
-      const nameMatch = profile.full_name && profile.full_name.toLowerCase().includes(searchLower)
-      const emailMatch = profile.email && profile.email.toLowerCase().includes(searchLower)
+    const filtered = profiles.filter(profile => {
+      if (!profile) return false
+
+      const name = profile.full_name ? profile.full_name.toLowerCase() : ''
+      const email = profile.email ? profile.email.toLowerCase() : ''
+
+      const nameMatch = name.includes(searchLower)
+      const emailMatch = email.includes(searchLower)
+
       return nameMatch || emailMatch
     }).slice(0, 20)
 
+    console.log(`Filtered to ${filtered.length} results`)
     res.json({ users: filtered })
   } catch (error) {
+    console.error('Search error:', error)
     res.status(503).json({ error: 'Search is not working right now. Try again later.' })
   }
 })
