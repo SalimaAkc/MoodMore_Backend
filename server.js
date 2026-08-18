@@ -129,7 +129,18 @@ async function getTracks(cacheKey, query, pageToken, ttl) {
 // CORS configuration
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true)
+    }
+
+    // allow if in allowed list
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true)
+    }
+
+    // allow localhost origins for development
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
       return callback(null, true)
     }
 
