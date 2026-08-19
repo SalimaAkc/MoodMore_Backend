@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { internals } from '../lib/youtube.js'
 
-const { formatDuration, decodeHtml } = internals
+const { formatDuration, decodeHtml, durationSeconds, looksLikeSong } = internals
 
 describe('formatDuration', () => {
   it('turns minutes and seconds into 4:13', () => {
@@ -50,5 +50,45 @@ describe('decodeHtml', () => {
   it('gives back an empty string for nothing', () => {
     expect(decodeHtml('')).toBe('')
     expect(decodeHtml(undefined)).toBe('')
+  })
+})
+
+describe('durationSeconds', () => {
+  it('counts minutes and seconds', () => {
+    expect(durationSeconds('PT4M13S')).toBe(253)
+  })
+
+  it('counts the hours too', () => {
+    expect(durationSeconds('PT1H2M3S')).toBe(3723)
+  })
+
+  it('gives back 0 for nothing or nonsense', () => {
+    expect(durationSeconds('')).toBe(0)
+    expect(durationSeconds(null)).toBe(0)
+  })
+})
+
+describe('looksLikeSong', () => {
+  it('keeps a normal song', () => {
+    expect(looksLikeSong('Dua Lipa - Levitating (Official Video)', 203)).toBe(true)
+  })
+
+  it('throws away the hour long videos', () => {
+    expect(looksLikeSong('Chill songs to study to', 3600)).toBe(false)
+  })
+
+  it('throws away the very short clips', () => {
+    expect(looksLikeSong('Some song teaser', 20)).toBe(false)
+  })
+
+  it('throws away compilations by their title', () => {
+    expect(looksLikeSong('Best Pop Mix 2024', 240)).toBe(false)
+    expect(looksLikeSong('Top 50 Sad Songs', 240)).toBe(false)
+    expect(looksLikeSong('Greatest Hits Of All Time', 240)).toBe(false)
+    expect(looksLikeSong('2 hours of calm piano', 240)).toBe(false)
+  })
+
+  it('still keeps a song when the length is unknown', () => {
+    expect(looksLikeSong('Adele - Easy On Me', 0)).toBe(true)
   })
 })

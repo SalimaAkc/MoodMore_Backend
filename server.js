@@ -88,7 +88,7 @@ async function passwordIsRight(email, password) {
 }
 
 // get tracks from cache or YouTube
-async function getTracks(cacheKey, query, pageToken, ttl) {
+async function getTracks(cacheKey, query, pageToken, ttl, songsOnly = false) {
   const cachedData = cache.get(cacheKey)
 
   if (cachedData && cachedData.isFresh) {
@@ -97,7 +97,7 @@ async function getTracks(cacheKey, query, pageToken, ttl) {
 
   if (quota.canSpend(quota.PAGE_COST)) {
     try {
-      const result = await searchTracks(query, pageToken, quota.spend)
+      const result = await searchTracks(query, pageToken, quota.spend, songsOnly)
 
       const answer = {
         tracks: result.tracks,
@@ -214,7 +214,8 @@ app.get('/api/playlist/:mood', rateLimit, async (req, res) => {
   const key = 'playlist:' + mood + ':' + searchQuery + ':' + token
 
   try {
-    const result = await getTracks(key, searchQuery, pageToken, cache.PLAYLIST_TTL)
+    // songsOnly: mood playlists should be single songs, not hour long mixes
+    const result = await getTracks(key, searchQuery, pageToken, cache.PLAYLIST_TTL, true)
     const responseData = Object.assign({}, result, { query: searchQuery })
     res.json(responseData)
   } catch (error) {
